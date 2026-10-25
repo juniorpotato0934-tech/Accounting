@@ -1,0 +1,55 @@
+{
+  "accounts": [
+    {
+      "name": "Cash",
+      "type": "Asset"
+    },
+    {
+      "name": "Accounts Receivable",
+      "type": "Asset"
+    },
+    {
+      "name": "Equipment",
+      "type": "Asset"
+    },
+    {
+      "name": "Accounts Payable",
+      "type": "Liability"
+    },
+    {
+      "name": "Owner's Capital",
+      "type": "Equity"
+    },
+    {
+      "name": "Sales Revenue",
+      "type": "Revenue"
+    },
+    {
+      "name": "Rent Expense",
+      "type": "Expense"
+    },
+    {
+      "name": "Salaries Expense",
+      "type": "Expense"
+    },
+    {
+      "name": "Repair Expense",
+      "type": "Expense"
+    },
+    {
+      "name": "Supplies Expense",
+      "type": "Expense"
+    }
+  ],
+  "transactions": [
+    {
+      "id": 1,
+      "person": "nino",
+      "date": "2026-10-25",
+      "description": "money invest",
+      "debit": "Cash",
+      "credit": "Owner's Capital",
+      "amount": 600.0
+    }
+  ]
+}
