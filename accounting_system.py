@@ -12,7 +12,7 @@ Data is saved automatically to 'accounting_data.json' (same folder) so nothing i
 Only needs Python 3 (tkinter is included with Python).
 """
 
-import json
+import json 
 import os
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -22,14 +22,20 @@ from datetime import datetime
 # SECTION 1: DATA STORAGE
 # Everything lives in two lists: ACCOUNTS and TRANSACTIONS. They are saved to a JSON file.
 
+#ari gi store ang mga gi inpute na transaction, silbe ni siyang sorage for data
 DATA_FILE = "accounting_data.json"
 
 # Account types decide which side increases the balance
+#diri ang sa credit ang debit, ari mo determin if unsa na account name ang paras debit ug credit.
+#same rana silag amount ma input sa debit ug credit lahi lag account name
 DEBIT_NORMAL = ("Asset", "Expense")            # balance goes UP with a debit
 CREDIT_NORMAL = ("Liability", "Equity", "Revenue")  # balance goes UP with a credit
 ACCOUNT_TYPES = DEBIT_NORMAL + CREDIT_NORMAL
 
+
+
 # Starter accounts so the system is usable right away
+#mao ni ang base account names and type, pero maka add ramog new account name and unsa siya type na account
 DEFAULT_ACCOUNTS = [
     {"name": "Cash", "type": "Asset"},
     {"name": "Accounts Receivable", "type": "Asset"},
@@ -41,7 +47,7 @@ DEFAULT_ACCOUNTS = [
     {"name": "Salaries Expense", "type": "Expense"},
 ]
 
-
+#diri niya ilabay ang gi input na transaction sa soud sa data storage
 def load_data():
     """Load accounts and transactions from the JSON file (or start fresh)."""
     if os.path.exists(DATA_FILE):
@@ -49,8 +55,7 @@ def load_data():
             data = json.load(f)
         return data["accounts"], data["transactions"]
     return list(DEFAULT_ACCOUNTS), []
-
-
+#after nimo input transaction, automatically siya masoud sa JSON which is ang storage 
 def save_data(accounts, transactions):
     """Write everything to the JSON file. Called after every change."""
     with open(DATA_FILE, "w", encoding="utf-8") as f:
@@ -59,6 +64,7 @@ def save_data(accounts, transactions):
 
 
 # SECTION 2: MAIN APPLICATION WINDOW
+#mao ni siya ang mismong UI sa system, ang window ug mga tab sa system
 class AccountingApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -66,6 +72,7 @@ class AccountingApp(tk.Tk):
         self.geometry("900x600")
 
         # Load saved data into memory
+        #ari mo auto save siya sa data storage ug unsay inyu i input
         self.accounts, self.transactions = load_data()
 
         # Tab container (the 4 pages)
@@ -73,6 +80,7 @@ class AccountingApp(tk.Tk):
         self.notebook.pack(fill="both", expand=True, padx=8, pady=8)
 
         # Build each page
+        #mao ni ang pages sa system
         self.build_new_transaction_page()
         self.build_ledger_page()
         self.build_accounts_page()
@@ -83,6 +91,7 @@ class AccountingApp(tk.Tk):
 
     
     # Helper: create a page (tab) with a purpose banner at the top
+    #diri na part kay sa kato rani header sa 1st tab para ma guide mo unsay buhaton, naka ai rani diri na part
     def make_page(self, tab_title, purpose_text):
         page = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(page, text=tab_title)
@@ -119,14 +128,16 @@ class AccountingApp(tk.Tk):
         form.pack(anchor="w")
 
         # Variables that hold what the user types/chooses
+        #mao ni ang murag silbe paramtere sa i input nimo for transactions
         self.var_person = tk.StringVar()
-        self.var_date = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d"))
+        self.var_date = tk.StringVar(value=datetime.now().strftime("%Y-%m-%d")) #kani siya ay automatic na current time/date
         self.var_desc = tk.StringVar()
         self.var_debit = tk.StringVar()
         self.var_credit = tk.StringVar()
         self.var_amount = tk.StringVar()
 
         # Each row = label + input widget
+        #diri mao ni kung asa ka mo input paras transaction
         ttk.Label(form, text="Person (who is inputting):").grid(row=0, column=0, sticky="w", pady=4)
         ttk.Entry(form, textvariable=self.var_person, width=35).grid(row=0, column=1, pady=4)
 
@@ -150,6 +161,7 @@ class AccountingApp(tk.Tk):
         ttk.Button(form, text="Record Transaction", command=self.record_transaction)\
             .grid(row=6, column=1, sticky="w", pady=12)
 
+    #after input transaction, ilabay dayun niya sa each pages
     def record_transaction(self):
         """Validate the form, save the transaction, then refresh every page."""
         person = self.var_person.get().strip()
@@ -159,6 +171,8 @@ class AccountingApp(tk.Tk):
         credit = self.var_credit.get()
 
         # Validation: stop and warn if something is wrong 
+        #diri kay i verify if sakto ba inyu gi input or naay missing
+        #diri na part most likely nag pa help rakos AI pero masabtan raman sad
         if not person or not desc:
             messagebox.showwarning("Missing info", "Please enter the person and a description.")
             return
@@ -182,6 +196,9 @@ class AccountingApp(tk.Tk):
             return
 
         # Save: add to the transaction list (this feeds the Ledger + History) 
+        """ari na part, mao nani ang transaction tab/list kung unsa imo gi input nya lahus rapud ma save sa storage.
+        bisag unsaon nimo exit sa system, ma save ra ghpon tong transaction. basta ayaw i delete ang storage file"""
+
         self.transactions.append({
             "id": len(self.transactions) + 1,   # simple running number
             "person": person,
@@ -194,23 +211,26 @@ class AccountingApp(tk.Tk):
         save_data(self.accounts, self.transactions)
 
         # Clear the form (keep the person and date for faster entry)
+        #after input sa transactio, automatic na siya mo blank dayun 
         self.var_desc.set("")
         self.var_amount.set("")
         self.var_debit.set("")
         self.var_credit.set("")
 
         self.refresh_all()
-        messagebox.showinfo("Saved", "Transaction recorded and posted to the Ledger.")
+        messagebox.showinfo("Saved", "Transaction recorded and posted to the Ledger.")#mao ni ang pop up nga na record siya
 
     
     # PAGE 2: LEDGER (journal view, 2 lines per transaction)
     def build_ledger_page(self):
+        #heading rani na part 
         page = self.make_page(
             "Ledger",
             "The journal. Every transaction is posted automatically as two lines: "
             "the debited account and the credited account. Total debits must equal total credits.")
         self.tree_ledger = self.make_table(
             page, ("Date", "Account", "Description", "Debit", "Credit"), (100, 180, 330, 100, 100))
+        
         # Totals label under the table
         self.lbl_totals = ttk.Label(page, font=("Arial", 10, "bold"))
         self.lbl_totals.pack(anchor="e", pady=6)
@@ -242,6 +262,7 @@ class AccountingApp(tk.Tk):
             page, ("Account", "Type", "Total Debit", "Total Credit", "Balance"), (220, 100, 130, 130, 130))
 
         # Small form to add an account
+        #ari maka add kag new account name ug unsa siya na type, pwede raka mag base sa previous activity sa acctg
         add = ttk.Frame(page)
         add.pack(anchor="w", pady=10)
         self.var_new_acc = tk.StringVar()
@@ -253,6 +274,8 @@ class AccountingApp(tk.Tk):
                      width=12, state="readonly").grid(row=0, column=3, padx=4)
         ttk.Button(add, text="Add Account", command=self.add_account).grid(row=0, column=4, padx=4)
 
+#after maka add ug new account name with account type, lahus na siya ma save sa system, sulod sa storage pud.
+#nya iya dayun i pasa pud sa 1st page, sa katung input transaction. makit dayun ddto sa credit ug debit na input imo new account
     def add_account(self):
         name = self.var_new_acc.get().strip()
         if not name:
@@ -279,6 +302,8 @@ class AccountingApp(tk.Tk):
 
 
     # PAGE 4: TRANSACTION HISTORY (one row per transaction)
+    #diri nimo makita imo history sa transaction, ug kinsa na name ga input sa transaction
+    #same ghpon nag need ghpon ni siyag data from the storage
     def build_history_page(self):
         page = self.make_page(
             "Transaction History",
@@ -291,6 +316,7 @@ class AccountingApp(tk.Tk):
     def refresh_history(self):
         self.tree_history.delete(*self.tree_history.get_children())
         # Newest first
+        #gi sort ni niya na ang bag o na transaction ang maoy naas ibabaw 
         for t in reversed(self.transactions):
             self.tree_history.insert("", "end", values=(
                 t["id"], t["date"], t["person"], t["description"],
@@ -309,6 +335,8 @@ class AccountingApp(tk.Tk):
 
            
     # DELETE A TRANSACTION (added on the Transaction History page)
+    #kani maoy naka nndot, if namali kag buhat transaction
+    #pwede ragyud nimo ma delete, and ma affect tanan parts sa system na imo to gi delete na entry
     def add_delete_feature(self):
         """Adds a 'Delete Selected Transaction' button under the History table."""
         history_page = self.tree_history.master.master   # the History tab's frame
@@ -335,12 +363,17 @@ class AccountingApp(tk.Tk):
         for new_id, t in enumerate(self.transactions, start=1):
             t["id"] = new_id
 
+    #after ma delete, na remove nato siya na entry sa mismo storage
         save_data(self.accounts, self.transactions)
         self.refresh_all()
         messagebox.showinfo("Deleted", "Transaction deleted.")
 
 
+
+
             # DELETE AN ACCOUNT (added on the Accounts page)
+            #ari kay maka delete rakas account name kung mali imo na create
+            #after ma delete ang account name, dinato siya ma display sa create transaction na page
     def add_delete_account_feature(self):
         """Adds a 'Delete Selected Account' button under the Accounts page."""
         accounts_page = self.tree_accounts.master.master   # the Accounts tab's frame
@@ -360,6 +393,8 @@ class AccountingApp(tk.Tk):
         acc = self.accounts[index]
 
         # Protect the books: don't delete an account that has transactions
+        #ari bawal ka maka delete ato na account name if naka input ka as transaction/entry
+        #bawalan ka i delete ang account name, unless imo i delete ang transaction/entry history
         used = any(t["debit"] == acc["name"] or t["credit"] == acc["name"]
                    for t in self.transactions)
         if used:
