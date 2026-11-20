@@ -6,6 +6,23 @@ The worksheet is built automatically from the entries:
   daily entries -> Unadjusted TB, adjusting entries -> Adjustments, both -> Adjusted TB,
   then each account goes to Income Statement / Owner's Equity / Balance Sheet by its type.
 Data is saved to 'accounting_data.json' (same folder). Needs only Python 3 (tkinter included).
+
+FILE MAP (search for the banner names to jump around):
+  1. CONSTANTS & SETTINGS
+  2. DATA LAYER            (load / save JSON)
+  3. HELPER FUNCTIONS      (money format, Dr/Cr split)
+  4. WORKSHEET ENGINE      (build_worksheet - the accounting logic)
+  5. MAIN APP CLASS
+       5.1  Setup & Style
+       5.2  Shared UI Helpers
+       5.3  Tab: New Transaction
+       5.4  Tab: Ledger
+       5.5  Tab: Accounts
+       5.6  Tab: Transaction History
+       5.7  Tab: Adjustments
+       5.8  Tab: Worksheet
+       5.9  Refresh Control
+  6. PROGRAM ENTRY POINT
 """
 
 import json
@@ -14,14 +31,21 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 
+
+# ============================================================================
+# 1. CONSTANTS & SETTINGS
+# ============================================================================
+
 DATA_FILE = "accounting_data.json"
-EPS = 0.005
+EPS = 0.005  # tolerance for floating-point comparisons (half a cent)
 
+# Order accounts appear in the worksheet
 TYPE_ORDER = ["Asset", "Contra Asset", "Liability", "Equity", "Drawings", "Revenue", "Expense"]
-DEBIT_NORMAL = ("Asset", "Drawings", "Expense")
-IS_TYPES = ("Revenue", "Expense")
-OE_TYPES = ("Equity", "Drawings")
+DEBIT_NORMAL = ("Asset", "Drawings", "Expense")   # types whose normal balance is a debit
+IS_TYPES = ("Revenue", "Expense")                 # -> Income Statement columns
+OE_TYPES = ("Equity", "Drawings")                 # -> Owner's Equity columns
 
+# 12 worksheet columns: u=Unadjusted, j=adjustments, a=Adjusted, i=Income Stmt, o=Owner's Equity, b=Balance Sheet
 COLS = [p + s for p in ("u", "j", "a", "i", "o", "b") for s in ("_dr", "_cr")]
 GROUPS = ("Unadjusted Trial Balance", "Adjustments", "Adjusted Trial Balance",
           "Income Statement", "Owner's Equity", "Balance Sheet")
@@ -30,6 +54,7 @@ GROUPS = ("Unadjusted Trial Balance", "Adjustments", "Adjusted Trial Balance",
 ICONS = {"New Transaction": "➕", "Ledger": "📒", "Accounts": "🏦",
          "Transaction History": "🕘", "Adjustments": "🛠", "Worksheet": "📊"}
 
+# Starting chart of accounts (used when no save file exists)
 DEFAULT_ACCOUNTS = [{"name": n, "type": t} for n, t in [
     ("Cash", "Asset"), ("Accounts Receivable", "Asset"), ("Supplies", "Asset"),
     ("Prepaid Expenses", "Asset"), ("Equipment", "Asset"),
@@ -39,6 +64,8 @@ DEFAULT_ACCOUNTS = [{"name": n, "type": t} for n, t in [
     ("Rent Expense", "Expense"), ("Salaries Expense", "Expense"), ("Utilities Expense", "Expense"),
     ("Supplies Expense", "Expense"), ("Insurance Expense", "Expense"), ("Depreciation Expense", "Expense")]]
 
+# Adjustment presets: name -> (debit acct, debit type, credit acct, credit type, description)
+# The types let the app auto-create the account if it's missing.
 ADJUSTMENT_TEMPLATES = {
     "Depreciation of equipment": ("Depreciation Expense", "Expense", "Accumulated Depreciation",
                                   "Contra Asset", "Depreciation for the period"),
@@ -57,24 +84,34 @@ ADJUSTMENT_TEMPLATES = {
 }
 
 
+# ============================================================================
+# 2. DATA LAYER  (load / save the JSON file)
+# ============================================================================
+
 def load_data():
+    """Read accounts, transactions and rules from the JSON file; fall back to defaults if missing."""
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         transactions = data.get("transactions", [])
         for t in transactions:
-            t.setdefault("kind", "regular")
+            t.setdefault("kind", "regular")  # older saves have no 'kind'
         return (data.get("accounts") or [dict(a) for a in DEFAULT_ACCOUNTS]), transactions, data.get("rules", [])
     return [dict(a) for a in DEFAULT_ACCOUNTS], [], []
 
 
 def save_data(accounts, transactions, rules):
+    """Write everything to the JSON file."""
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump({"accounts": accounts, "transactions": transactions, "rules": rules}, f, indent=2)
 
 
+# ============================================================================
+# 3. HELPER FUNCTIONS
+# ============================================================================
+
 def money(v):
-    """Format a number; negatives in parentheses."""
+    """Format a number with commas and 2 decimals; negatives in parentheses."""
     return f"({-v:,.2f})" if v < -EPS else f"{v:,.2f}"
 
 
@@ -84,10 +121,20 @@ def split_dr_cr(net):
     return (net, 0.0) if net > 0 else (0.0, -net)
 
 
+# ============================================================================
+# 4. WORKSHEET ENGINE  (pure accounting logic, no GUI)
+# ============================================================================
+
 def build_worksheet(accounts, transactions):
-    """Build the 12-column worksheet; returns rows, totals, net income, ending equity."""
+    """Build the 12-column worksheet; returns rows, totals, net income, ending equity.
+
+    Steps: sum daily (reg) and adjusting (adj) debits/credits per account -> Unadjusted TB,
+    Adjustments, Adjusted TB -> push each adjusted balance to IS / OE / BS by account type ->
+    add the Net Income and Ending Equity balancing rows.
+    """
     ordered = sorted(accounts, key=lambda a: TYPE_ORDER.index(a["type"]) if a["type"] in TYPE_ORDER else 99)
 
+    # --- Totals per account: regular vs adjusting, debit vs credit ---
     tot = {k: {} for k in ("reg_dr", "reg_cr", "adj_dr", "adj_cr")}
     for t in transactions:
         p = "adj" if t.get("kind") == "adjusting" else "reg"
@@ -95,6 +142,7 @@ def build_worksheet(accounts, transactions):
             d = tot[f"{p}_{side}"]
             d[t[key]] = d.get(t[key], 0.0) + t["amount"]
 
+    # --- One worksheet row per account ---
     rows = []
     for acc in ordered:
         n = acc["name"]
@@ -102,17 +150,20 @@ def build_worksheet(accounts, transactions):
         adjusted = round(rd - rc + ad - ac, 2)
         row = dict.fromkeys(COLS, 0.0)
         row.update(name=n, type=acc["type"])
-        row["u_dr"], row["u_cr"] = split_dr_cr(rd - rc)
-        row["j_dr"], row["j_cr"] = round(ad, 2), round(ac, 2)
-        row["a_dr"], row["a_cr"] = split_dr_cr(adjusted)
+        row["u_dr"], row["u_cr"] = split_dr_cr(rd - rc)          # Unadjusted TB
+        row["j_dr"], row["j_cr"] = round(ad, 2), round(ac, 2)    # Adjustments
+        row["a_dr"], row["a_cr"] = split_dr_cr(adjusted)         # Adjusted TB
+        # Copy the adjusted balance into IS, OE or BS depending on the type
         target = "i" if acc["type"] in IS_TYPES else "o" if acc["type"] in OE_TYPES else "b"
         row[target + "_dr"], row[target + "_cr"] = row["a_dr"], row["a_cr"]
+        # Extra fields used by the Accounts tab (not worksheet columns)
         row["p_dr"], row["p_cr"] = round(rd + ad, 2), round(rc + ac, 2)
         row["balance"] = round(adjusted if acc["type"] in DEBIT_NORMAL else -adjusted, 2)
         rows.append(row)
 
     totals = {k: round(sum(r[k] for r in rows), 2) for k in COLS}
 
+    # --- Net income row: balances the Income Statement, carries into Owner's Equity ---
     ni = round(totals["i_cr"] - totals["i_dr"], 2)
     ni_row = dict.fromkeys(COLS, 0.0)
     if ni >= 0:
@@ -124,6 +175,7 @@ def build_worksheet(accounts, transactions):
     for k in ("i_dr", "i_cr", "o_dr", "o_cr"):
         final[k] = round(totals[k] + ni_row[k], 2)
 
+    # --- Ending equity row: balances Owner's Equity, carries into Balance Sheet ---
     equity_end = round(final["o_cr"] - final["o_dr"], 2)
     end_row = dict.fromkeys(COLS, 0.0)
     if equity_end >= 0:
@@ -137,14 +189,25 @@ def build_worksheet(accounts, transactions):
             "end_row": end_row, "final": final, "equity_end": equity_end}
 
 
+# ============================================================================
+# 5. MAIN APP CLASS
+# ============================================================================
+
 class AccountingApp(tk.Tk):
+    """Main window: a sidebar notebook with 6 tabs, all driven by self.accounts / transactions / rules."""
+
+    # ------------------------------------------------------------------------
+    # 5.1  SETUP & STYLE
+    # ------------------------------------------------------------------------
+
     def __init__(self):
+        """Load data, build every tab, and set up lazy refreshing (a tab refreshes only when opened)."""
         super().__init__()
         self.title("Automated Accounting System")
         self.geometry("1280x720")
         self.apply_style()
         self.accounts, self.transactions, self.rules = load_data()
-        self.ws = None
+        self.ws = None  # cached worksheet result
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill="both", expand=True)
@@ -152,9 +215,10 @@ class AccountingApp(tk.Tk):
                       self.build_history_page, self.build_adjustments_page, self.build_worksheet_page):
             build()
 
+        # One refresher per tab, in the SAME order as the tabs above (None = nothing to refresh)
         self.page_refreshers = [None, self.refresh_ledger, self.refresh_accounts, self.refresh_history,
                                 self.refresh_adjustments, self.refresh_worksheet]
-        self.dirty = set()
+        self.dirty = set()  # indexes of tabs that need redrawing
         self.notebook.bind("<<NotebookTabChanged>>", lambda e: self.refresh_tab(self.notebook.index("current")))
         self.refresh_all()
 
@@ -176,9 +240,15 @@ class AccountingApp(tk.Tk):
         s.configure("TButton", padding=(10, 6))
 
     def save(self):
+        """Save current data to disk."""
         save_data(self.accounts, self.transactions, self.rules)
 
+    # ------------------------------------------------------------------------
+    # 5.2  SHARED UI HELPERS  (used by several tabs)
+    # ------------------------------------------------------------------------
+
     def make_page(self, title, purpose):
+        """Create a tab with its icon title and a purpose note at the top; returns the page frame."""
         page = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(page, text=f"  {ICONS.get(title, '')}   {title}")
         ttk.Label(page, text=f"PURPOSE: {purpose}", foreground="#1a5276", wraplength=1000,
@@ -214,16 +284,18 @@ class AccountingApp(tk.Tk):
         return w
 
     def find_account(self, name):
+        """Case-insensitive account lookup; returns the account dict or None."""
         name = name.strip().lower()
         return next((a for a in self.accounts if a["name"].lower() == name), None)
 
     def next_id(self):
+        """Next transaction number (highest existing id + 1)."""
         return max((t["id"] for t in self.transactions), default=0) + 1
 
     def check_entry(self, date, desc, debit, credit, amount_text):
         """Validate fields shared by daily and adjusting entries. Returns the amount, or None after a warning."""
         def warn(title, msg):
-            messagebox.showwarning(title, msg)
+            messagebox.showwarning(title, msg)  # returns None, so callers can `return warn(...)`
 
         try:
             datetime.strptime(date, "%Y-%m-%d")
@@ -241,7 +313,12 @@ class AccountingApp(tk.Tk):
             return warn("Bad amount", "Amount must be a number greater than 0.")
         return round(amount, 2)
 
+    # ------------------------------------------------------------------------
+    # 5.3  TAB: NEW TRANSACTION
+    # ------------------------------------------------------------------------
+
     def build_new_transaction_page(self):
+        """Form for daily transactions: person, date, description, debit/credit accounts, amount."""
         page = self.make_page(
             "New Transaction",
             "Record a DAILY transaction: who is recording it, the date, a description, the account to DEBIT, "
@@ -263,6 +340,7 @@ class AccountingApp(tk.Tk):
             .grid(row=6, column=1, sticky="w", pady=12)
 
     def record_transaction(self):
+        """Validate the form, store the transaction as 'regular', save, and refresh all tabs."""
         person, date, desc = self.var_person.get().strip(), self.var_date.get().strip(), self.var_desc.get().strip()
         debit, credit = self.var_debit.get(), self.var_credit.get()
         if not person:
@@ -274,11 +352,16 @@ class AccountingApp(tk.Tk):
                                   "description": desc, "debit": debit, "credit": credit, "amount": amount})
         self.save()
         for v in (self.var_desc, self.var_amount, self.var_debit, self.var_credit):
-            v.set("")
+            v.set("")  # clear the form (person and date stay for the next entry)
         self.refresh_all()
         messagebox.showinfo("Saved", "Transaction recorded and posted to the Ledger and Worksheet.")
 
+    # ------------------------------------------------------------------------
+    # 5.4  TAB: LEDGER
+    # ------------------------------------------------------------------------
+
     def build_ledger_page(self):
+        """Account picker on top, the account's ledger table below, totals at the bottom."""
         page = self.make_page(
             "Ledger",
             "Choose an account to see its ledger. Each transaction is posted to the account debited "
@@ -302,6 +385,7 @@ class AccountingApp(tk.Tk):
         self.lbl_account_totals.pack(anchor="e", pady=6)
 
     def refresh_ledger(self):
+        """Reload the account list (keeping the current choice) and the grand totals."""
         names = [a["name"] for a in self.accounts]
         self.cmb_ledger["values"] = names
         self.cmb_ledger.configure(height=min(max(len(names), 1), 15))
@@ -312,6 +396,7 @@ class AccountingApp(tk.Tk):
         self.lbl_totals.config(text=f"All Accounts - Total Debit: {grand:,.2f}    Total Credit: {grand:,.2f}")
 
     def show_account_ledger(self):
+        """Fill the table with the chosen account's entries (by date) and a running balance."""
         self.tree_ledger.delete(*self.tree_ledger.get_children())
         acc = self.find_account(self.var_ledger_acc.get())
         if acc is None:
@@ -325,8 +410,9 @@ class AccountingApp(tk.Tk):
         for t in sorted(self.transactions, key=lambda x: (x["date"], x["id"])):
             is_dr = t["debit"] == acc["name"]
             if not is_dr and t["credit"] != acc["name"]:
-                continue
+                continue  # entry doesn't touch this account
             amt = t["amount"]
+            # Balance goes up when the entry is on the account's normal side, down otherwise
             balance += amt if is_dr == debit_normal else -amt
             if is_dr:
                 total_dr += amt
@@ -339,7 +425,12 @@ class AccountingApp(tk.Tk):
         self.lbl_account_totals.config(
             text=f"Total Debit: {total_dr:,.2f}    Total Credit: {total_cr:,.2f}    Balance: {money(balance)}")
 
+    # ------------------------------------------------------------------------
+    # 5.5  TAB: ACCOUNTS
+    # ------------------------------------------------------------------------
+
     def build_accounts_page(self):
+        """Accounts table plus a small form to add accounts and a button to delete one."""
         page = self.make_page(
             "Accounts",
             "Every account and its current balance (daily + adjusting entries). You can add or delete accounts. "
@@ -362,6 +453,7 @@ class AccountingApp(tk.Tk):
         ttk.Button(add, text="Delete Selected Account", command=self.delete_account).grid(row=0, column=5, padx=20)
 
     def add_account(self):
+        """Add a new account (name must be non-empty and unique)."""
         name = self.var_new_acc.get().strip()
         if not name:
             return messagebox.showwarning("Missing name", "Enter an account name.")
@@ -373,10 +465,11 @@ class AccountingApp(tk.Tk):
         self.refresh_all()
 
     def delete_account(self):
+        """Delete the selected account, but only if no transaction or rule uses it."""
         selected = self.tree_accounts.selection()
         if not selected:
             return messagebox.showwarning("No selection", "Click an account in the list first.")
-        idx = int(selected[0])
+        idx = int(selected[0])  # row id = index in self.accounts
         acc = self.accounts[idx]
         uses = lambda items: any(x["debit"] == acc["name"] or x["credit"] == acc["name"] for x in items)
         if uses(self.transactions):
@@ -391,12 +484,13 @@ class AccountingApp(tk.Tk):
         del self.accounts[idx]
         for var in (self.var_debit, self.var_credit):
             if var.get() == acc["name"]:
-                var.set("")
+                var.set("")  # don't leave a deleted account selected in the form
         self.save()
         self.refresh_all()
         messagebox.showinfo("Deleted", "Account deleted.")
 
     def refresh_accounts(self):
+        """Redraw the table using totals/balances from the worksheet result."""
         self.tree_accounts.delete(*self.tree_accounts.get_children())
         by_name = {r["name"]: r for r in self.ws["rows"]}
         for i, acc in enumerate(self.accounts):
@@ -404,7 +498,12 @@ class AccountingApp(tk.Tk):
             self.tree_accounts.insert("", "end", iid=str(i), values=(
                 acc["name"], acc["type"], f"{r['p_dr']:,.2f}", f"{r['p_cr']:,.2f}", money(r["balance"])))
 
+    # ------------------------------------------------------------------------
+    # 5.6  TAB: TRANSACTION HISTORY
+    # ------------------------------------------------------------------------
+
     def build_history_page(self):
+        """Table of all entries (newest first) with a delete button."""
         page = self.make_page(
             "Transaction History",
             "Every entry as it was entered (daily and adjusting), including who entered it. "
@@ -415,6 +514,7 @@ class AccountingApp(tk.Tk):
         ttk.Button(page, text="Delete Selected Transaction", command=self.delete_transaction).pack(anchor="w", pady=8)
 
     def refresh_history(self):
+        """Redraw the table, newest entry first."""
         self.tree_history.delete(*self.tree_history.get_children())
         for t in reversed(self.transactions):
             self.tree_history.insert("", "end", values=(
@@ -422,6 +522,7 @@ class AccountingApp(tk.Tk):
                 t["description"], t["debit"], t["credit"], f"{t['amount']:,.2f}"))
 
     def delete_transaction(self):
+        """Delete the selected transaction, then renumber all ids so there are no gaps."""
         selected = self.tree_history.selection()
         if not selected:
             return messagebox.showwarning("No selection", "Click a transaction in the list first.")
@@ -437,7 +538,12 @@ class AccountingApp(tk.Tk):
         self.refresh_all()
         messagebox.showinfo("Deleted", "Transaction deleted.")
 
+    # ------------------------------------------------------------------------
+    # 5.7  TAB: ADJUSTMENTS
+    # ------------------------------------------------------------------------
+
     def build_adjustments_page(self):
+        """Adjustment form (with templates) on top, recurring-rules table and buttons below."""
         page = self.make_page(
             "Adjustments",
             "Post end-of-period ADJUSTING entries. Pick an adjustment type and the accounts are filled in "
@@ -473,16 +579,21 @@ class AccountingApp(tk.Tk):
         ttk.Button(rbtns, text="Apply All Rules (uses the period-end date above)",
                    command=self.apply_rules).pack(side="left")
         ttk.Button(rbtns, text="Delete Selected Rule", command=self.delete_rule).pack(side="left", padx=10)
-        self.apply_template()
+        self.apply_template()  # fill the form with the first template
 
     def apply_template(self):
+        """Fill debit, credit and description from the selected adjustment type."""
         d, _, c, _, desc = ADJUSTMENT_TEMPLATES[self.var_adj_template.get()]
         self.var_adj_debit.set(d)
         self.var_adj_credit.set(c)
         self.var_adj_desc.set(desc)
 
     def read_adjustment_form(self):
-        """Validate the adjustment form. Returns an entry dict or None."""
+        """Validate the adjustment form. Returns an entry dict or None.
+
+        debit_type / credit_type are set only when the account still matches the template's
+        default, so post_entry knows it may auto-create that account.
+        """
         date, desc = self.var_adj_date.get().strip(), self.var_adj_desc.get().strip()
         debit, credit = self.var_adj_debit.get().strip(), self.var_adj_credit.get().strip()
         amount = self.check_entry(date, desc, debit, credit, self.var_adj_amount.get())
@@ -495,7 +606,7 @@ class AccountingApp(tk.Tk):
                 "credit_type": c_type if credit.lower() == c_def.lower() else None}
 
     def post_entry(self, e):
-        """Post one adjusting entry. Returns an error message, or None on success."""
+        """Post one adjusting entry (creating missing template accounts). Returns an error message, or None on success."""
         if e["debit"].lower() == e["credit"].lower():
             return "Debit and credit accounts must be different."
         accs = []
@@ -504,6 +615,7 @@ class AccountingApp(tk.Tk):
             if acc is None and e.get(side + "_type") not in TYPE_ORDER:
                 return f"Account '{e[side]}' doesn't exist. Pick an existing account or use the template's account."
             accs.append(acc)
+        # Only create accounts after BOTH sides passed validation
         for i, side in enumerate(("debit", "credit")):
             if accs[i] is None:
                 accs[i] = {"name": e[side].strip(), "type": e[side + "_type"]}
@@ -515,6 +627,7 @@ class AccountingApp(tk.Tk):
         return None
 
     def post_adjustment(self):
+        """'Post Adjustment' button: validate the form, post the entry, save, refresh."""
         e = self.read_adjustment_form()
         if e is None:
             return
@@ -527,6 +640,7 @@ class AccountingApp(tk.Tk):
         messagebox.showinfo("Posted", "Adjusting entry posted. The Worksheet has been updated.")
 
     def save_rule(self):
+        """Save the current form as a recurring rule (amount included; date is chosen when applying)."""
         e = self.read_adjustment_form()
         if e is None:
             return
@@ -536,6 +650,7 @@ class AccountingApp(tk.Tk):
         self.refresh_all()
 
     def delete_rule(self):
+        """Delete the selected recurring rule."""
         selected = self.tree_rules.selection()
         if not selected:
             return messagebox.showwarning("No selection", "Click a rule in the list first.")
@@ -544,6 +659,7 @@ class AccountingApp(tk.Tk):
         self.refresh_all()
 
     def apply_rules(self):
+        """Post every rule at the period-end date; entries already posted for that date are skipped."""
         date = self.var_adj_date.get().strip()
         try:
             datetime.strptime(date, "%Y-%m-%d")
@@ -555,6 +671,7 @@ class AccountingApp(tk.Tk):
         posted = skipped = 0
         errors = []
         for r in self.rules:
+            # Same date + description + accounts + amount = already posted, so don't double up
             duplicate = any(
                 t.get("kind") == "adjusting" and t["date"] == date and t["description"] == r["description"]
                 and t["debit"].lower() == r["debit"].lower() and t["credit"].lower() == r["credit"].lower()
@@ -577,6 +694,7 @@ class AccountingApp(tk.Tk):
         messagebox.showinfo("Rules applied", msg)
 
     def refresh_adjustments(self):
+        """Refresh the account dropdowns and the rules table."""
         names = [a["name"] for a in self.accounts]
         self.cmb_adj_debit["values"] = self.cmb_adj_credit["values"] = names
         self.tree_rules.delete(*self.tree_rules.get_children())
@@ -584,7 +702,12 @@ class AccountingApp(tk.Tk):
             self.tree_rules.insert("", "end", iid=str(i), values=(
                 r["template"], r["debit"], r["credit"], f"{r['amount']:,.2f}", r["description"]))
 
+    # ------------------------------------------------------------------------
+    # 5.8  TAB: WORKSHEET
+    # ------------------------------------------------------------------------
+
     def build_worksheet_page(self):
+        """A scrollable Canvas (the worksheet is drawn by hand) plus a summary line."""
         page = self.make_page(
             "Worksheet",
             "The 12-column worksheet, built automatically from your entries. Net income is pulled into the "
@@ -603,15 +726,17 @@ class AccountingApp(tk.Tk):
         c.grid(row=0, column=0, sticky="nsew")
         vs.grid(row=0, column=1, sticky="ns")
         hs.grid(row=1, column=0, sticky="ew")
+        # Mouse wheel scrolling (Windows/Mac use <MouseWheel>, Linux uses Button-4/5)
         c.bind("<MouseWheel>", lambda e: c.yview_scroll(-1 if e.delta > 0 else 1, "units"))
         c.bind("<Button-4>", lambda e: c.yview_scroll(-1, "units"))
         c.bind("<Button-5>", lambda e: c.yview_scroll(1, "units"))
 
     def refresh_worksheet(self):
+        """Redraw the whole worksheet on the canvas from self.ws (headers, account rows, totals, final row)."""
         ws, c = self.ws, self.ws_canvas
         c.delete("all")
-        NAME_W, COL_W, ROW_H = 230, 105, 26
-        LINE, HEAD, TOTAL, PULL = "#2c3e50", "#d6eaf8", "#aed6f1", "#fcf3cf"
+        NAME_W, COL_W, ROW_H = 230, 105, 26  # layout sizes in pixels
+        LINE, HEAD, TOTAL, PULL = "#2c3e50", "#d6eaf8", "#aed6f1", "#fcf3cf"  # border / header / totals / pulled-row colors
 
         def cell(x0, y0, x1, y1, text, bg, bold=False, align="e"):
             """Draw one ruled cell with text aligned 'w' (left), 'e' (right) or 'center'."""
@@ -621,6 +746,7 @@ class AccountingApp(tk.Tk):
                 c.create_text(x + 1, (y0 + y1) / 2 + 1, text=text, font=("Arial", 10, "bold" if bold else "normal"),
                               anchor="center" if align == "center" else align)
 
+        # --- Header: account column + 6 group titles, each split into Debit / Credit ---
         cell(0, 0, NAME_W, 2 * ROW_H, "Account", HEAD, True, "center")
         for i, name in enumerate(GROUPS):
             x0 = NAME_W + i * 2 * COL_W
@@ -629,12 +755,14 @@ class AccountingApp(tk.Tk):
             cell(x0 + COL_W, ROW_H, x0 + 2 * COL_W, 2 * ROW_H, "Credit", HEAD, True, "center")
 
         def put_row(r, name, d, bg="white", bold=False):
+            """Draw one full worksheet row (name + 12 amount cells); zeros are left blank."""
             y0, y1 = r * ROW_H, (r + 1) * ROW_H
             cell(0, y0, NAME_W, y1, name, bg, bold, "w")
             for k, col in enumerate(COLS):
                 x0 = NAME_W + k * COL_W
                 cell(x0, y0, x0 + COL_W, y1, "" if abs(d[col]) < EPS else f"{d[col]:,.2f}", bg, bold)
 
+        # --- Body: account rows, then totals, net income, ending equity, final totals ---
         r = 2
         for row in ws["rows"]:
             put_row(r, row["name"], row)
@@ -645,7 +773,7 @@ class AccountingApp(tk.Tk):
 
         f = ws["final"]
         balanced = all(abs(f[p + "_dr"] - f[p + "_cr"]) < EPS for p in "ujaiob")
-        put_row(r + 3, "FINAL TOTALS", f, "#d5f5e3" if balanced else "#f5b7b1", True)
+        put_row(r + 3, "FINAL TOTALS", f, "#d5f5e3" if balanced else "#f5b7b1", True)  # green = balanced, red = not
         c.configure(scrollregion=(0, 0, NAME_W + 12 * COL_W + 2, (r + 4) * ROW_H + 2))
 
         self.lbl_ws_summary.config(
@@ -653,7 +781,12 @@ class AccountingApp(tk.Tk):
                  f"Ending Owner's Equity: {money(ws['equity_end'])}     "
                  f"Worksheet: {'BALANCED' if balanced else 'OUT OF BALANCE'}")
 
+    # ------------------------------------------------------------------------
+    # 5.9  REFRESH CONTROL  (keeps every tab up to date)
+    # ------------------------------------------------------------------------
+
     def refresh_all(self):
+        """Call after ANY data change: rebuild the worksheet, mark all tabs dirty, redraw the visible one."""
         names = [a["name"] for a in self.accounts]
         self.cmb_debit["values"] = self.cmb_credit["values"] = names
         self.ws = build_worksheet(self.accounts, self.transactions)
@@ -661,11 +794,16 @@ class AccountingApp(tk.Tk):
         self.refresh_tab(self.notebook.index("current"))
 
     def refresh_tab(self, idx):
+        """Redraw tab number idx only if it is marked dirty (so hidden tabs update when opened)."""
         if idx in self.dirty:
             if self.page_refreshers[idx]:
                 self.page_refreshers[idx]()
             self.dirty.discard(idx)
 
+
+# ============================================================================
+# 6. PROGRAM ENTRY POINT
+# ============================================================================
 
 if __name__ == "__main__":
     AccountingApp().mainloop()
