@@ -807,3 +807,82 @@ class AccountingApp(tk.Tk):
 
 if __name__ == "__main__":
     AccountingApp().mainloop()
+
+
+# ============================================================================
+# 7. QUICK GLOSSARY  (what the common words in this file mean)
+# ============================================================================
+#
+# --- PYTHON BASICS ---------------------------------------------------------
+# def          Starts a function:  def money(v):  ->  call it with money(5)
+# class        A blueprint for an object. AccountingApp is the blueprint of our window.
+# self         "This very window/object". Inside a class, self.accounts means the
+#              accounts that belong to this window. Every method must list self first.
+# __init__     Runs automatically once when the object is created, e.g. AccountingApp().
+#              We use it to load data and build the tabs.
+# method       A def that lives inside a class (record_transaction, refresh_ledger...).
+# return       Sends a value back. A bare "return" just stops the function early.
+# lambda       A tiny one-line function, e.g. lambda e: self.apply_template().
+# @staticmethod  A method that doesn't need self (add_field).
+# """text"""   Docstring: the description shown for a function/class/file.
+# # text       A normal comment, ignored by Python.
+# if __name__ == "__main__":   Runs the app only when this file is run directly,
+#                              not when it is imported by another file.
+#
+# --- IMPORTS ---------------------------------------------------------------
+# json         Saves/loads data as text in a .json file (json.dump / json.load).
+# os           Talks to the computer; os.path.exists checks if a file exists.
+# tkinter (tk) Python's built-in window/GUI library (windows, buttons, canvas).
+# ttk          Newer "themed" widgets inside tkinter: ttk.Frame, ttk.Label,
+#              ttk.Button, ttk.Entry, ttk.Combobox, ttk.Treeview, ttk.Notebook.
+# messagebox   Pop-up boxes: showinfo, showwarning, askyesno.
+# datetime     Dates. strptime checks "YYYY-MM-DD"; now() gives today's date.
+#
+# --- GUI WORDS (tkinter) ---------------------------------------------------
+# widget       Any screen item (button, label, text box, table).
+# Tk / tk.Tk   The main window. AccountingApp(tk.Tk) means "our app IS a window".
+# Frame        An invisible box used to group other widgets.
+# Notebook     The tab container; each page is one tab (shown as the sidebar).
+# Treeview     A table with rows and columns (ledger, history, accounts).
+# Combobox     A dropdown list. state="readonly" = pick only, no typing.
+# Entry        A one-line text box.
+# Canvas       A blank drawing area; the Worksheet is drawn on it cell by cell.
+# StringVar    A box holding text that is linked to a widget. .get() reads it,
+#              .set("x") changes it.
+# .configure() / .config()  Changes a widget's settings after it is created
+#              (text, colors, fonts, values).
+# Style        ttk.Style sets colors/fonts for all widgets of one kind.
+# .bind()      "When this event happens, run this function" (click, select, scroll).
+# command=     The function a button runs when clicked.
+#
+# --- LAYOUT (how widgets are placed) ---------------------------------------
+# .pack()      Stacks widgets (side="left"/"bottom", fill, expand, anchor).
+# .grid()      Places widgets in rows and columns (row=, column=, sticky=).
+# padx / pady  Space around a widget (horizontal / vertical).
+# anchor / sticky  Which edge/corner the widget sticks to: "w"=left, "e"=right,
+#              "n"=top, "s"=bottom, "nsew"=stretch in all directions.
+#
+# --- DATA TYPES USED IN THIS FILE ------------------------------------------
+# str          Text:     "Cash"
+# float        Decimal:  1250.50 (money amounts)
+# int          Whole number: 3 (ids, row numbers)
+# bool         True / False
+# None         "Nothing / no value" (e.g. check_entry returns None on error)
+# list  [ ]    Ordered items you can change:  accounts, transactions, rules
+# tuple ( )    Ordered items that can't change: TYPE_ORDER, COLS
+# dict  { }    Key -> value pairs:  {"name": "Cash", "type": "Asset"}
+# set          Unique items only: self.dirty (tabs that need redrawing)
+#
+# --- OTHER SYNTAX YOU WILL SEE ---------------------------------------------
+# f"..{x}.."   f-string: puts the value of x inside the text.
+# f"{n:,.2f}"  Format a number with commas and 2 decimals (1,250.50).
+# [x for ...]  List comprehension: builds a list in one line.
+# t.get("kind")  Read a dict key safely (gives None instead of an error if missing).
+# *args        "*" unpacks a list into separate arguments (delete(*children)).
+# a, b = x, y  Assign several variables at once.
+# try / except Try something; if it fails (e.g. a bad date), run the except part.
+# with open()  Opens a file and closes it automatically afterwards.
+#
+# --- QUICK DATA FLOW -------------------------------------------------------
+# User input -> self.transactions (list of dicts) -> save() writes the JSON file
+# -> refresh_all() runs build_worksheet() -> every tab redraws from the result.
